@@ -1567,8 +1567,8 @@ class ReplicationStream extends BinaryReader {
     this._ackmsgAppliedLsn = new DataView(this._ackmsg.buffer, 17, 8);
     this._iterator = this._start(conn, options);
   }
-  pgoutputDecode() {
-    return PgoutputReader.decodeStream(this);
+  pgoutputDecode(options = {}) {
+    return PgoutputReader.decodeStream(this, options);
   }
   [Symbol.asyncIterator]() {
     return this._iterator;
@@ -1685,8 +1685,8 @@ class ReplicationStream extends BinaryReader {
 
 // https://www.postgresql.org/docs/14/protocol-logicalrep-message-formats.html
 class PgoutputReader extends BinaryReader {
-  static async * decodeStream(replstream) {
-    const pgoreader = new PgoutputReader();
+  static async * decodeStream(replstream, options = {}) {
+    const pgoreader = new PgoutputReader(options);
     for await (const chunk of replstream) {
       for (const msg of chunk.messages) {
         pgoreader._reset(msg.data);
@@ -1695,6 +1695,11 @@ class PgoutputReader extends BinaryReader {
       }
       yield chunk;
     }
+  }
+
+  constructor(options) {
+    super()
+    this.rawText = options.rawText ?? false;
   }
 
   /** @type {Map<number, { typeSchema: string, typeName: string }>} */
@@ -1828,12 +1833,13 @@ class PgoutputReader extends BinaryReader {
           const valsize = this._readInt32();
           const valbuf = this._read(valsize);
           const decoder = this._textDecoder;
+          const raw = this.rawText
           Object.defineProperty(tuple, name, {
             configurable: true,
             enumerable: true,
             get() {
               const valtext = decoder.decode(valbuf);
-              const value = PgType.decode(valtext, typeOid);
+              const value = raw ? valtext : PgType.decode(valtext, typeOid);
               Object.defineProperty(this, name, {
                 value,
                 configurable: false,
